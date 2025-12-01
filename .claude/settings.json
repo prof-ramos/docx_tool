@@ -1,0 +1,28 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c 'input=$(cat); MODEL=$(echo \"$input\" | jq -r \".model.display_name\"); DIR=$(echo \"$input\" | jq -r \".workspace.current_dir\"); MOOD_FACES=(\"😴\" \"😅\" \"🤔\" \"😎\" \"🤯\" \"🥳\" \"😤\" \"🤖\"); MOOD=${MOOD_FACES[$((RANDOM % ${#MOOD_FACES[@]}))]}; ACTIVITY=$([ -f \"*.py\" ] && echo \"🐍 Pythoning\" || [ -f \"*.js\" ] && echo \"🌐 JSing\" || [ -f \"*.rs\" ] && echo \"🦀 Rusting\" || echo \"💻 Coding\"); TIME=$(date \"+%H:%M\"); ENERGY=$((RANDOM % 100 + 1)); echo \"[$MODEL] $MOOD $ACTIVITY | ⚡$ENERGY% | 🕐 $TIME | 📁 ${DIR##*/}\"'"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_TOOL_FILE_PATH\" == *.py ]]; then black \"$CLAUDE_TOOL_FILE_PATH\" 2>/dev/null || true; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_TOOL_FILE_PATH\" == *.js || \"$CLAUDE_TOOL_FILE_PATH\" == *.ts || \"$CLAUDE_TOOL_FILE_PATH\" == *.jsx || \"$CLAUDE_TOOL_FILE_PATH\" == *.tsx ]]; then npx eslint \"$CLAUDE_TOOL_FILE_PATH\" --fix 2>/dev/null || true; elif [[ \"$CLAUDE_TOOL_FILE_PATH\" == *.py ]]; then pylint \"$CLAUDE_TOOL_FILE_PATH\" 2>/dev/null || true; elif [[ \"$CLAUDE_TOOL_FILE_PATH\" == *.rb ]]; then rubocop \"$CLAUDE_TOOL_FILE_PATH\" --auto-correct 2>/dev/null || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
