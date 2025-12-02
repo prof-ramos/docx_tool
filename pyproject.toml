@@ -1,0 +1,84 @@
+[project]
+name = "legal-bot"
+version = "0.1.0"
+description = "Discord bot with RAG for Brazilian legal documents"
+requires-python = ">=3.11"
+dependencies = [
+    # CLI & Processing
+    "typer[all]>=0.9.0",
+    "rich>=13.0.0",
+    "docling>=1.0.0",
+    "python-docx>=1.0.0",
+    "pydantic>=2.0.0",
+
+    # Discord Bot
+    "discord.py>=2.3.0",
+    "psutil>=5.9.0",
+
+    # RAG & AI
+    "openai>=1.0.0",
+    "supabase>=2.0.0",
+
+    # Dashboard
+    "streamlit>=1.28.0",
+    "plotly>=5.18.0",
+    "pandas>=2.1.0",
+
+    # Utils
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+docx-cli = "docx_cli.main:app"
+legal-bot = "src.bot.main:run_bot"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bot", "src/docx_cli", "src/dashboard"]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.git
+  | \.venv
+  | venv
+  | build
+  | dist
+  | Output
+  | Administrativo
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip_gitignore = true
+extend_skip = ["Output", "Administrativo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=src --cov-report=term-missing --cov-report=html -v"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+exclude = ['venv', 'build', 'dist', 'Output', 'Administrativo']

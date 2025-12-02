@@ -2,3 +2,7 @@ streamlit
 python-docx
 docling
 docx2txt
+pytest
+pytest-mock
+typer
+rich
