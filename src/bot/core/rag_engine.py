@@ -66,11 +66,20 @@ class RAGEngine:
 
     def _start_periodic_save(self):
         """Start background task for periodic cache saving."""
+        # Cancel existing task if any
+        if self._cache_save_task and not self._cache_save_task.done():
+            self._cache_save_task.cancel()
+
         async def save_loop():
             while True:
-                await asyncio.sleep(300)  # 5 minutes
-                if self.cache:
-                    await self.cache.save_async()
+                try:
+                    await asyncio.sleep(300)  # 5 minutes
+                    if self.cache:
+                        await self.cache.save_async()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    console.print(f"[red]✗ Error in periodic save: {e}[/red]")
 
         self._cache_save_task = asyncio.create_task(save_loop())
 

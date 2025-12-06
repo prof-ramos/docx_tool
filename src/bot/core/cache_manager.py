@@ -4,6 +4,7 @@ import json
 import hashlib
 import time
 import asyncio
+import atexit
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
@@ -107,6 +108,10 @@ class CacheManager:
 
         # Note: Automatic loading in __init__ is disabled to allow async loading
         # Call await load_async() after initialization
+
+        # Register emergency save on exit
+        if self.enable_persistence:
+            atexit.register(self._emergency_save)
 
     def _hash_text(self, text: str) -> str:
         """Generate hash key for text."""
@@ -317,17 +322,21 @@ class CacheManager:
             # Atomic replace
             temp_file.replace(filepath)
         except Exception as e:
+            console.print(f"[red]✗ Error writing {filepath}: {e}[/red]")
             if temp_file.exists():
                 temp_file.unlink()
             raise e
 
-    def save_to_disk(self, embedding_cache_copy: Optional[Dict] = None, response_cache_copy: Optional[Dict] = None):
+    def save_to_disk(self, embedding_cache_copy: Optional[Dict] = None,
+                     response_cache_copy: Optional[Dict] = None,
+                     stats_copy: Optional[Dict] = None):
         """
         Save caches to disk (blocking).
 
         Args:
-            embedding_cache_copy: Optional copy of embedding cache to save (for thread safety)
-            response_cache_copy: Optional copy of response cache to save (for thread safety)
+            embedding_cache_copy: Optional copy of embedding cache to save
+            response_cache_copy: Optional copy of response cache to save
+            stats_copy: Optional copy of stats to save
         """
         if not self.enable_persistence:
             return
@@ -335,6 +344,7 @@ class CacheManager:
         # Use provided copies or current state (for sync usage)
         embedding_cache = embedding_cache_copy if embedding_cache_copy is not None else self._embedding_cache
         response_cache = response_cache_copy if response_cache_copy is not None else self._response_cache
+        stats = stats_copy if stats_copy is not None else self.get_stats()
 
         try:
             # Save embeddings
@@ -352,7 +362,7 @@ class CacheManager:
             # Save stats
             self._write_atomic(
                 self.cache_dir / "stats.json",
-                self.get_stats()
+                stats
             )
 
             console.print(f"[green]✓ Cache saved to {self.cache_dir}[/green]")
@@ -371,9 +381,10 @@ class CacheManager:
             # if the cache is modified while saving.
             embedding_copy = self._embedding_cache.copy()
             response_copy = self._response_cache.copy()
+            stats_copy = self.get_stats()
 
             # Run blocking I/O in a separate thread, passing the safe copies
-            await asyncio.to_thread(self.save_to_disk, embedding_copy, response_copy)
+            await asyncio.to_thread(self.save_to_disk, embedding_copy, response_copy, stats_copy)
         except Exception as e:
             console.print(f"[red]✗ Error saving cache asynchronously: {e}[/red]")
 
@@ -412,10 +423,10 @@ class CacheManager:
         except Exception as e:
             console.print(f"[red]✗ Error loading cache asynchronously: {e}[/red]")
 
-    def __del__(self):
-        """Save cache on cleanup."""
-        if self.enable_persistence:
-            try:
-                self.save_to_disk()
-            except Exception:
-                pass
+    def _emergency_save(self):
+        """Emergency save on process exit (blocking, safe for atexit)."""
+        try:
+            # We use current state for emergency save
+            self.save_to_disk()
+        except Exception:
+            pass

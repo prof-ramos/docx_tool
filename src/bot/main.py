@@ -54,6 +54,12 @@ class LegalBot(commands.Bot):
             )
         )
 
+    async def close(self):
+        """Shutdown hook."""
+        if self.rag_engine:
+            await self.rag_engine.shutdown()
+        await super().close()
+
 def run_bot():
     """Start the Discord bot."""
     token = os.getenv("DISCORD_TOKEN")
