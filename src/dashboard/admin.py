@@ -104,6 +104,24 @@ def search_documents(query, limit=20):
         st.error(f"Erro na busca: {e}")
         return []
 
+@st.cache_data(ttl=30)
+def get_cache_stats():
+    """Get cache statistics from cache files."""
+    from pathlib import Path
+    import json
+
+    try:
+        cache_dir = Path.home() / ".cache" / "legal_bot"
+        stats_file = cache_dir / "stats.json"
+
+        if stats_file.exists():
+            with open(stats_file, 'r') as f:
+                return json.load(f)
+        return None
+    except Exception as e:
+        st.error(f"Erro ao carregar stats do cache: {e}")
+        return None
+
 # Dashboard Page
 if page == "📊 Dashboard":
     st.title("📊 Dashboard do Bot Legal")
@@ -199,6 +217,80 @@ if page == "📊 Dashboard":
             st.dataframe(df_docs, hide_index=True, use_container_width=True)
         else:
             st.info("Nenhum documento encontrado")
+
+        st.markdown("---")
+
+        # Cache statistics
+        st.subheader("💾 Estatísticas de Cache")
+        cache_stats = get_cache_stats()
+
+        if cache_stats:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("#### 🔤 Cache de Embeddings")
+                emb_stats = cache_stats['embeddings']
+
+                # Metrics
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                with metric_col1:
+                    st.metric("Hits", emb_stats['hits'])
+                with metric_col2:
+                    st.metric("Misses", emb_stats['misses'])
+                with metric_col3:
+                    hit_rate = emb_stats['hit_rate'] * 100
+                    st.metric("Hit Rate", f"{hit_rate:.1f}%")
+
+                # Additional info
+                st.info(f"**Tamanho:** {emb_stats['size']} entradas  \n**Evictions:** {emb_stats['evictions']}")
+
+                # API calls saved
+                if emb_stats['hits'] > 0:
+                    cost_saved = emb_stats['hits'] * 0.00002
+                    st.success(f"💰 **API calls economizadas:** {emb_stats['hits']}  \n💰 **Custo economizado:** ${cost_saved:.4f}")
+
+            with col2:
+                st.markdown("#### 💬 Cache de Respostas")
+                resp_stats = cache_stats['responses']
+
+                # Metrics
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                with metric_col1:
+                    st.metric("Hits", resp_stats['hits'])
+                with metric_col2:
+                    st.metric("Misses", resp_stats['misses'])
+                with metric_col3:
+                    hit_rate = resp_stats['hit_rate'] * 100
+                    st.metric("Hit Rate", f"{hit_rate:.1f}%")
+
+                # Additional info
+                st.info(f"**Tamanho:** {resp_stats['size']} entradas  \n**Evictions:** {resp_stats['evictions']}")
+
+                # Total size
+                total_size_mb = cache_stats['total_size_bytes'] / (1024 * 1024)
+                st.info(f"📦 **Tamanho total estimado:** {total_size_mb:.2f} MB")
+
+            # Cache performance chart
+            st.markdown("#### 📈 Performance do Cache")
+
+            # Create performance data
+            perf_data = {
+                'Cache': ['Embeddings', 'Respostas'],
+                'Hits': [emb_stats['hits'], resp_stats['hits']],
+                'Misses': [emb_stats['misses'], resp_stats['misses']]
+            }
+            df_perf = pd.DataFrame(perf_data)
+
+            # Stacked bar chart
+            fig = go.Figure(data=[
+                go.Bar(name='Hits', x=df_perf['Cache'], y=df_perf['Hits'], marker_color='#2ecc71'),
+                go.Bar(name='Misses', x=df_perf['Cache'], y=df_perf['Misses'], marker_color='#e74c3c')
+            ])
+            fig.update_layout(barmode='stack', title='Cache Hits vs Misses')
+            st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.info("📭 Cache ainda não foi utilizado ou estatísticas não disponíveis")
 
     else:
         st.warning("⚠️ Não foi possível carregar as estatísticas")

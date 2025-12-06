@@ -134,6 +134,141 @@ class AdminCommands(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="cache_stats", description="[ADMIN] Estatísticas do cache")
+    @is_admin()
+    async def cache_stats(self, interaction: discord.Interaction):
+        """Show cache statistics (admin only)."""
+        if not self.bot.rag_engine or not self.bot.rag_engine.cache_enabled:
+            embed = discord.Embed(
+                title="⚠️ Cache Desabilitado",
+                description="O cache está desabilitado no RAG engine.",
+                color=discord.Color.yellow()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        cache_stats = self.bot.rag_engine.get_cache_stats()
+
+        embed = discord.Embed(
+            title="📊 Estatísticas do Cache",
+            color=discord.Color.blue()
+        )
+
+        # Embedding cache stats
+        emb_stats = cache_stats['embeddings']
+        embed.add_field(
+            name="🔤 Cache de Embeddings",
+            value=(
+                f"**Hits:** {emb_stats['hits']}\n"
+                f"**Misses:** {emb_stats['misses']}\n"
+                f"**Hit Rate:** {emb_stats['hit_rate']:.1%}\n"
+                f"**Tamanho:** {emb_stats['size']} entradas\n"
+                f"**Evictions:** {emb_stats['evictions']}"
+            ),
+            inline=False
+        )
+
+        # Response cache stats
+        resp_stats = cache_stats['responses']
+        embed.add_field(
+            name="💬 Cache de Respostas",
+            value=(
+                f"**Hits:** {resp_stats['hits']}\n"
+                f"**Misses:** {resp_stats['misses']}\n"
+                f"**Hit Rate:** {resp_stats['hit_rate']:.1%}\n"
+                f"**Tamanho:** {resp_stats['size']} entradas\n"
+                f"**Evictions:** {resp_stats['evictions']}"
+            ),
+            inline=False
+        )
+
+        # Total size
+        total_size_mb = cache_stats['total_size_bytes'] / (1024 * 1024)
+        embed.add_field(
+            name="💾 Tamanho Total Estimado",
+            value=f"{total_size_mb:.2f} MB",
+            inline=False
+        )
+
+        # Calculate savings
+        total_api_calls_saved = emb_stats['hits'] + (resp_stats['hits'] * 6)  # Assume 1 query = 1 embed + 1 LLM call
+        embed.add_field(
+            name="💰 Economia Estimada",
+            value=f"~{total_api_calls_saved} chamadas de API economizadas",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="clear_cache", description="[ADMIN] Limpa o cache")
+    @app_commands.describe(
+        cache_type="Tipo de cache a limpar (embeddings, responses, all)"
+    )
+    @app_commands.choices(cache_type=[
+        app_commands.Choice(name="Embeddings", value="embeddings"),
+        app_commands.Choice(name="Respostas", value="responses"),
+        app_commands.Choice(name="Tudo", value="all")
+    ])
+    @is_admin()
+    async def clear_cache(
+        self,
+        interaction: discord.Interaction,
+        cache_type: app_commands.Choice[str]
+    ):
+        """Clear cache (admin only)."""
+        if not self.bot.rag_engine or not self.bot.rag_engine.cache_enabled:
+            embed = discord.Embed(
+                title="⚠️ Cache Desabilitado",
+                description="O cache está desabilitado no RAG engine.",
+                color=discord.Color.yellow()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get stats before clearing
+            before_stats = self.bot.rag_engine.get_cache_stats()
+
+            # Clear cache
+            self.bot.rag_engine.clear_cache(cache_type.value)
+
+            # Build response
+            cache_type_name = cache_type.name
+            embed = discord.Embed(
+                title="✅ Cache Limpo",
+                description=f"Cache de **{cache_type_name}** foi limpo com sucesso.",
+                color=discord.Color.green()
+            )
+
+            # Show what was cleared
+            if cache_type.value in ["embeddings", "all"]:
+                emb_cleared = before_stats['embeddings']['size']
+                embed.add_field(
+                    name="🔤 Embeddings Removidos",
+                    value=f"{emb_cleared} entradas",
+                    inline=True
+                )
+
+            if cache_type.value in ["responses", "all"]:
+                resp_cleared = before_stats['responses']['size']
+                embed.add_field(
+                    name="💬 Respostas Removidas",
+                    value=f"{resp_cleared} entradas",
+                    inline=True
+                )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Erro",
+                description=f"Erro ao limpar cache:\n```{str(e)}```",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
     @commands.command(name="ping")
     async def ping(self, ctx):
         """Check bot latency."""
