@@ -34,6 +34,11 @@ class DocumentIngestionPipeline:
 
     async def initialize(self):
         """Initialize connections."""
+        # Load cache if enabled
+        if self.cache_enabled:
+            console.print("[blue]ℹ Loading cache...[/blue]")
+            await self.cache.load_async()
+
         # Supabase
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -265,6 +270,10 @@ class DocumentIngestionPipeline:
                 console.print(f"[green]💰 Estimated API calls saved: {api_calls_saved}[/green]")
                 console.print(f"[green]💰 Estimated cost saved: ${cost_saved:.4f}[/green]")
 
+            # Final save of cache
+            console.print("[blue]ℹ Saving cache...[/blue]")
+            await self.cache.save_async()
+
         return stats
 
 
@@ -296,7 +305,12 @@ async def main():
     await pipeline.initialize()
 
     # Ingest documents
-    await pipeline.ingest_directory(args.directory, args.pattern)
+    try:
+        await pipeline.ingest_directory(args.directory, args.pattern)
+    finally:
+        # Ensure explicit save on exit if cache is enabled (though ingest_directory does it too)
+        if pipeline.cache_enabled:
+             await pipeline.cache.save_async()
 
 
 if __name__ == "__main__":
