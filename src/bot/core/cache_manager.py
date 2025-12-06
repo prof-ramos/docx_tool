@@ -106,6 +106,9 @@ class CacheManager:
         self.embedding_stats = CacheStats()
         self.response_stats = CacheStats()
 
+        # Lock for async save
+        self._save_lock = asyncio.Lock()
+
         # Note: Automatic loading in __init__ is disabled to allow async loading
         # Call await load_async() after initialization
 
@@ -322,10 +325,31 @@ class CacheManager:
             # Atomic replace
             temp_file.replace(filepath)
         except Exception as e:
-            console.print(f"[red]✗ Error writing {filepath}: {e}[/red]")
+            console.print(f"[red]✗ Atomic write failed for {filepath.name}: {e}[/red]")
             if temp_file.exists():
                 temp_file.unlink()
             raise e
+
+    def _snapshot_cache(self, cache: Dict[str, CacheEntry]) -> Dict[str, CacheEntry]:
+        """
+        Create a thread-safe snapshot of the cache.
+
+        This iterates over the dictionary in the main thread (blocking but fast for <10k items)
+        and creates new CacheEntry objects to avoid mutation of metadata (access_count/last_accessed)
+        during serialization in the worker thread.
+
+        The 'value' (embedding list or response dict) is shared by reference, assuming it's effectively immutable.
+        This avoids deep-copying 100MB+ of float arrays.
+        """
+        return {
+            k: CacheEntry(
+                value=v.value,
+                created_at=v.created_at,
+                last_accessed=v.last_accessed,
+                access_count=v.access_count
+            )
+            for k, v in cache.items()
+        }
 
     def save_to_disk(self, embedding_cache_copy: Optional[Dict] = None,
                      response_cache_copy: Optional[Dict] = None,
@@ -375,18 +399,25 @@ class CacheManager:
         if not self.enable_persistence:
             return
 
-        try:
-            # Create shallow copies in the main thread to prevent
-            # "dictionary changed size during iteration" errors in the worker thread
-            # if the cache is modified while saving.
-            embedding_copy = self._embedding_cache.copy()
-            response_copy = self._response_cache.copy()
-            stats_copy = self.get_stats()
+        async with self._save_lock:
+            try:
+                # Create snapshot copies in the main thread to prevent
+                # "dictionary changed size during iteration" errors AND inconsistent metadata state.
+                # We use _snapshot_cache instead of shallow .copy() because CacheEntry is mutable.
+                embedding_copy = self._snapshot_cache(self._embedding_cache)
+                response_copy = self._snapshot_cache(self._response_cache)
+                stats_copy = self.get_stats()
 
-            # Run blocking I/O in a separate thread, passing the safe copies
-            await asyncio.to_thread(self.save_to_disk, embedding_copy, response_copy, stats_copy)
-        except Exception as e:
-            console.print(f"[red]✗ Error saving cache asynchronously: {e}[/red]")
+                # Run blocking I/O in a separate thread, passing the safe copies
+                # Use wait_for to prevent hanging forever
+                await asyncio.wait_for(
+                    asyncio.to_thread(self.save_to_disk, embedding_copy, response_copy, stats_copy),
+                    timeout=60.0
+                )
+            except asyncio.TimeoutError:
+                console.print("[red]✗ Cache save timeout after 60s![/red]")
+            except Exception as e:
+                console.print(f"[red]✗ Error saving cache asynchronously: {e}[/red]")
 
     def _load_from_disk(self):
         """Load caches from disk (blocking)."""
