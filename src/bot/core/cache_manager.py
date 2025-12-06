@@ -3,6 +3,7 @@ import os
 import json
 import hashlib
 import time
+import asyncio
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
@@ -104,9 +105,8 @@ class CacheManager:
         self.embedding_stats = CacheStats()
         self.response_stats = CacheStats()
 
-        # Load from disk if persistence enabled
-        if self.enable_persistence:
-            self._load_from_disk()
+        # Note: Automatic loading in __init__ is disabled to allow async loading
+        # Call await load_async() after initialization
 
     def _hash_text(self, text: str) -> str:
         """Generate hash key for text."""
@@ -308,34 +308,77 @@ class CacheManager:
             for key, entry_data in data.items()
         }
 
-    def save_to_disk(self):
-        """Save caches to disk."""
+    def _write_atomic(self, filepath: Path, data: Any):
+        """Write data to file atomically (write to temp + rename)."""
+        temp_file = filepath.with_suffix(filepath.suffix + ".tmp")
+        try:
+            with open(temp_file, 'w') as f:
+                json.dump(data, f)
+            # Atomic replace
+            temp_file.replace(filepath)
+        except Exception as e:
+            if temp_file.exists():
+                temp_file.unlink()
+            raise e
+
+    def save_to_disk(self, embedding_cache_copy: Optional[Dict] = None, response_cache_copy: Optional[Dict] = None):
+        """
+        Save caches to disk (blocking).
+
+        Args:
+            embedding_cache_copy: Optional copy of embedding cache to save (for thread safety)
+            response_cache_copy: Optional copy of response cache to save (for thread safety)
+        """
         if not self.enable_persistence:
             return
 
+        # Use provided copies or current state (for sync usage)
+        embedding_cache = embedding_cache_copy if embedding_cache_copy is not None else self._embedding_cache
+        response_cache = response_cache_copy if response_cache_copy is not None else self._response_cache
+
         try:
             # Save embeddings
-            embedding_file = self.cache_dir / "embeddings.json"
-            with open(embedding_file, 'w') as f:
-                json.dump(self._serialize_cache(self._embedding_cache), f)
+            self._write_atomic(
+                self.cache_dir / "embeddings.json",
+                self._serialize_cache(embedding_cache)
+            )
 
             # Save responses
-            response_file = self.cache_dir / "responses.json"
-            with open(response_file, 'w') as f:
-                json.dump(self._serialize_cache(self._response_cache), f)
+            self._write_atomic(
+                self.cache_dir / "responses.json",
+                self._serialize_cache(response_cache)
+            )
 
             # Save stats
-            stats_file = self.cache_dir / "stats.json"
-            with open(stats_file, 'w') as f:
-                json.dump(self.get_stats(), f, indent=2)
+            self._write_atomic(
+                self.cache_dir / "stats.json",
+                self.get_stats()
+            )
 
             console.print(f"[green]✓ Cache saved to {self.cache_dir}[/green]")
 
         except Exception as e:
             console.print(f"[red]✗ Error saving cache: {e}[/red]")
 
+    async def save_async(self):
+        """Save caches to disk asynchronously (non-blocking)."""
+        if not self.enable_persistence:
+            return
+
+        try:
+            # Create shallow copies in the main thread to prevent
+            # "dictionary changed size during iteration" errors in the worker thread
+            # if the cache is modified while saving.
+            embedding_copy = self._embedding_cache.copy()
+            response_copy = self._response_cache.copy()
+
+            # Run blocking I/O in a separate thread, passing the safe copies
+            await asyncio.to_thread(self.save_to_disk, embedding_copy, response_copy)
+        except Exception as e:
+            console.print(f"[red]✗ Error saving cache asynchronously: {e}[/red]")
+
     def _load_from_disk(self):
-        """Load caches from disk."""
+        """Load caches from disk (blocking)."""
         try:
             # Load embeddings
             embedding_file = self.cache_dir / "embeddings.json"
@@ -358,7 +401,21 @@ class CacheManager:
         except Exception as e:
             console.print(f"[yellow]⚠ Error loading cache: {e}[/yellow]")
 
+    async def load_async(self):
+        """Load caches from disk asynchronously (non-blocking)."""
+        if not self.enable_persistence:
+            return
+
+        try:
+            # Run blocking I/O in a separate thread
+            await asyncio.to_thread(self._load_from_disk)
+        except Exception as e:
+            console.print(f"[red]✗ Error loading cache asynchronously: {e}[/red]")
+
     def __del__(self):
         """Save cache on cleanup."""
         if self.enable_persistence:
-            self.save_to_disk()
+            try:
+                self.save_to_disk()
+            except Exception:
+                pass

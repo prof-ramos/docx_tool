@@ -1,6 +1,7 @@
 """RAG Engine for document retrieval and generation."""
 import os
 import hashlib
+import asyncio
 from typing import List, Dict, Optional
 import openai
 from supabase import create_client, Client
@@ -16,6 +17,7 @@ class RAGEngine:
         self.supabase: Optional[Client] = None
         self.openai_client = None
         self.collection_name = "legal_documents"
+        self._cache_save_task = None
 
         # Initialize cache manager
         self.cache_enabled = enable_cache
@@ -32,6 +34,11 @@ class RAGEngine:
 
     async def initialize(self):
         """Initialize connections to Supabase and OpenAI."""
+        # Load cache asynchronously
+        if self.cache_enabled:
+            console.print("[blue]ℹ Loading cache...[/blue]")
+            await self.cache.load_async()
+
         # Supabase
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -52,6 +59,33 @@ class RAGEngine:
         openai.api_key = openai_key
         self.openai_client = openai
         console.print("[green]✓ Connected to OpenAI[/green]")
+
+        # Start periodic cache saving (every 5 minutes)
+        if self.cache_enabled and self.cache.enable_persistence:
+            self._start_periodic_save()
+
+    def _start_periodic_save(self):
+        """Start background task for periodic cache saving."""
+        async def save_loop():
+            while True:
+                await asyncio.sleep(300)  # 5 minutes
+                if self.cache:
+                    await self.cache.save_async()
+
+        self._cache_save_task = asyncio.create_task(save_loop())
+
+    async def shutdown(self):
+        """Gracefully shutdown the engine."""
+        if self._cache_save_task:
+            self._cache_save_task.cancel()
+            try:
+                await self._cache_save_task
+            except asyncio.CancelledError:
+                pass
+
+        if self.cache_enabled:
+            console.print("[blue]ℹ Saving cache before shutdown...[/blue]")
+            await self.cache.save_async()
 
     async def generate_embedding(self, text: str) -> List[float]:
         """
