@@ -115,9 +115,10 @@ def get_cache_stats():
         stats_file = cache_dir / "stats.json"
 
         if stats_file.exists():
-            with open(stats_file, 'r') as f:
+            with open(stats_file) as f:
                 return json.load(f)
-        return None
+        else:
+            return None
     except Exception as e:
         st.error(f"Erro ao carregar stats do cache: {e}")
         return None
@@ -229,25 +230,27 @@ if page == "📊 Dashboard":
 
             with col1:
                 st.markdown("#### 🔤 Cache de Embeddings")
-                emb_stats = cache_stats['embeddings']
+                emb_stats = cache_stats.get('embeddings', {})
+                if not emb_stats:
+                    st.warning("Estatísticas de embeddings não disponíveis")
+                else:
+                    # Metrics
+                    metric_col1, metric_col2, metric_col3 = st.columns(3)
+                    with metric_col1:
+                        st.metric("Hits", emb_stats['hits'])
+                    with metric_col2:
+                        st.metric("Misses", emb_stats['misses'])
+                    with metric_col3:
+                        hit_rate = emb_stats['hit_rate'] * 100
+                        st.metric("Hit Rate", f"{hit_rate:.1f}%")
 
-                # Metrics
-                metric_col1, metric_col2, metric_col3 = st.columns(3)
-                with metric_col1:
-                    st.metric("Hits", emb_stats['hits'])
-                with metric_col2:
-                    st.metric("Misses", emb_stats['misses'])
-                with metric_col3:
-                    hit_rate = emb_stats['hit_rate'] * 100
-                    st.metric("Hit Rate", f"{hit_rate:.1f}%")
+                    # Additional info
+                    st.info(f"**Tamanho:** {emb_stats['size']} entradas  \n**Evictions:** {emb_stats['evictions']}")
 
-                # Additional info
-                st.info(f"**Tamanho:** {emb_stats['size']} entradas  \n**Evictions:** {emb_stats['evictions']}")
-
-                # API calls saved
-                if emb_stats['hits'] > 0:
-                    cost_saved = emb_stats['hits'] * 0.00002
-                    st.success(f"💰 **API calls economizadas:** {emb_stats['hits']}  \n💰 **Custo economizado:** ${cost_saved:.4f}")
+                    # API calls saved
+                    if emb_stats['hits'] > 0:
+                        cost_saved = emb_stats['hits'] * 0.00000002
+                        st.success(f"💰 **API calls economizadas:** {emb_stats['hits']}  \n💰 **Custo economizado:** ${cost_saved:.4f}")
 
             with col2:
                 st.markdown("#### 💬 Cache de Respostas")

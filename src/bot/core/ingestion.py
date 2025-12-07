@@ -293,6 +293,11 @@ async def main():
         default="*.md",
         help="File pattern to match (default: *.md)"
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable embedding cache (force regeneration)"
+    )
 
     args = parser.parse_args()
 
@@ -301,7 +306,7 @@ async def main():
         return
 
     # Initialize pipeline
-    pipeline = DocumentIngestionPipeline()
+    pipeline = DocumentIngestionPipeline(enable_cache=not args.no_cache)
     await pipeline.initialize()
 
     # Ingest documents
@@ -310,7 +315,7 @@ async def main():
     finally:
         # Ensure explicit save on exit if cache is enabled (though ingest_directory does it too)
         if pipeline.cache_enabled:
-             await pipeline.cache.save_async()
+            await pipeline.cache.save_async()
 
 
 if __name__ == "__main__":

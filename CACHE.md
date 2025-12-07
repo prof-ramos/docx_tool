@@ -6,7 +6,7 @@ O sistema de cache foi implementado para reduzir custos de API e melhorar a perf
 
 ## Arquitetura
 
-```
+```text
 ┌─────────────────────────────────────────────┐
 │         CacheManager                        │
 ├─────────────────────────────────────────────┤
@@ -82,7 +82,7 @@ cached_embedding = self.cache.get_embedding(chunk_text)
 #### Comandos Admin
 
 **Ver estatísticas do cache:**
-```
+```text
 /cache_stats
 ```
 
@@ -94,7 +94,7 @@ Retorna:
 - Economia estimada de API calls
 
 **Limpar cache:**
-```
+```text
 /clear_cache [embeddings|responses|all]
 ```
 

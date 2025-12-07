@@ -1,5 +1,4 @@
 """Cache manager for embeddings and RAG responses."""
-import os
 import json
 import hashlib
 import time
@@ -8,7 +7,6 @@ import atexit
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
 from rich.console import Console
 
 console = Console()
@@ -122,6 +120,9 @@ class CacheManager:
 
     def _evict_lru(self, cache: Dict[str, CacheEntry], max_size: int, stats: CacheStats):
         """Evict least recently used entries when cache is full."""
+        if max_size <= 0:
+            return
+
         while len(cache) >= max_size:
             # Find LRU entry
             lru_key = min(cache.keys(), key=lambda k: cache[k].last_accessed)
@@ -328,7 +329,7 @@ class CacheManager:
             console.print(f"[red]✗ Atomic write failed for {filepath.name}: {e}[/red]")
             if temp_file.exists():
                 temp_file.unlink()
-            raise e
+            raise
 
     def _snapshot_cache(self, cache: Dict[str, CacheEntry]) -> Dict[str, CacheEntry]:
         """
@@ -414,7 +415,7 @@ class CacheManager:
                     asyncio.to_thread(self.save_to_disk, embedding_copy, response_copy, stats_copy),
                     timeout=60.0
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 console.print("[red]✗ Cache save timeout after 60s![/red]")
             except Exception as e:
                 console.print(f"[red]✗ Error saving cache asynchronously: {e}[/red]")
@@ -459,5 +460,9 @@ class CacheManager:
         try:
             # We use current state for emergency save
             self.save_to_disk()
-        except Exception:
-            pass
+        except Exception as e:
+            # Best-effort logging during shutdown
+            try:
+                console.print(f"[yellow]⚠ Emergency save failed: {e}[/yellow]")
+            except Exception:
+                pass
