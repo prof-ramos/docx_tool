@@ -149,6 +149,15 @@ class AdminCommands(commands.Cog):
 
         cache_stats = self.bot.rag_engine.get_cache_stats()
 
+        if not cache_stats:
+            embed = discord.Embed(
+                title="❌ Erro",
+                description="Não foi possível obter estatísticas do cache.",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
         embed = discord.Embed(
             title="📊 Estatísticas do Cache",
             color=discord.Color.blue()
@@ -191,7 +200,9 @@ class AdminCommands(commands.Cog):
         )
 
         # Calculate savings
-        total_api_calls_saved = emb_stats['hits'] + (resp_stats['hits'] * 6)  # Assume 1 query = 1 embed + 1 LLM call
+        # Response hit saves: 1 query embedding + ~5 context embeddings + 1 LLM call = ~7 API calls
+        RESPONSE_HIT_API_MULTIPLIER = 7  # Approximate API calls saved per response cache hit
+        total_api_calls_saved = emb_stats['hits'] + (resp_stats['hits'] * RESPONSE_HIT_API_MULTIPLIER)
         embed.add_field(
             name="💰 Economia Estimada",
             value=f"~{total_api_calls_saved} chamadas de API economizadas",
@@ -264,7 +275,7 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             embed = discord.Embed(
                 title="❌ Erro",
-                description=f"Erro ao limpar cache:\n```{str(e)}```",
+                description=f"Erro ao limpar cache:\n```{e!s}```",
                 color=discord.Color.red()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)

@@ -241,7 +241,7 @@ Responda de forma clara e objetiva, citando os documentos quando necessário."""
         """
         # Create deterministic representation of context
         context_repr = "|".join([
-            f"{doc.get('id', '')}:{doc.get('similarity', 0.0):.4f}"
+            f"{doc.get('id', '')}:{doc.get('similarity', 0.0):.2f}"
             for doc in docs
         ])
         return hashlib.sha256(context_repr.encode('utf-8')).hexdigest()
@@ -312,16 +312,19 @@ Responda de forma clara e objetiva, citando os documentos quando necessário."""
             return self.cache.get_stats()
         return None
 
-    def clear_cache(self, cache_type: str = "all"):
+    def clear_cache(self, cache_type: str = "all") -> bool:
         """
         Clear cache.
 
         Args:
             cache_type: "embeddings", "responses", or "all"
+
+        Returns:
+            True if successful, False otherwise
         """
         if not self.cache_enabled:
             console.print("[yellow]⚠ Cache is disabled[/yellow]")
-            return
+            return False
 
         if cache_type == "embeddings":
             self.cache.clear_embeddings()
@@ -331,3 +334,6 @@ Responda de forma clara e objetiva, citando os documentos quando necessário."""
             self.cache.clear_all()
         else:
             console.print(f"[red]✗ Invalid cache type: {cache_type}[/red]")
+            return False
+
+        return True
