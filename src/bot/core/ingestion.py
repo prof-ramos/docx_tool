@@ -8,20 +8,37 @@ from supabase import create_client, Client
 from rich.console import Console
 from rich.progress import track
 import hashlib
+from .cache_manager import CacheManager
 
 console = Console()
 
 class DocumentIngestionPipeline:
     """Pipeline to ingest processed documents into Supabase vector store."""
 
-    def __init__(self):
+    def __init__(self, enable_cache: bool = True):
         self.supabase: Client = None
         self.openai_client = None
         self.chunk_size = 1000  # characters per chunk
         self.chunk_overlap = 200
 
+        # Initialize cache manager
+        self.cache_enabled = enable_cache
+        if enable_cache:
+            self.cache = CacheManager(
+                embedding_ttl=0,  # No expiration for document embeddings
+                response_ttl=0,  # Not used in ingestion
+                enable_persistence=True
+            )
+        else:
+            self.cache = None
+
     async def initialize(self):
         """Initialize connections."""
+        # Load cache if enabled
+        if self.cache_enabled:
+            console.print("[blue]ℹ Loading cache...[/blue]")
+            await self.cache.load_async()
+
         # Supabase
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -87,13 +104,37 @@ class DocumentIngestionPipeline:
         return chunks
 
     async def generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding for text."""
+        """
+        Generate embedding for text.
+
+        Uses cache to avoid redundant API calls for duplicate content.
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Embedding vector
+        """
+        # Check cache first
+        if self.cache_enabled:
+            cached_embedding = self.cache.get_embedding(text)
+            if cached_embedding is not None:
+                return cached_embedding
+
+        # Generate new embedding
         try:
             response = await self.openai_client.Embedding.acreate(
                 model="text-embedding-3-small",
                 input=text
             )
-            return response['data'][0]['embedding']
+            embedding = response['data'][0]['embedding']
+
+            # Cache the result
+            if self.cache_enabled:
+                self.cache.set_embedding(text, embedding)
+
+            return embedding
+
         except Exception as e:
             console.print(f"[red]✗ Embedding error: {e}[/red]")
             raise
@@ -212,6 +253,27 @@ class DocumentIngestionPipeline:
         console.print(f"[yellow]⚠ Errors: {stats['errors']}[/yellow]")
         console.print(f"[blue]Success rate: {stats['success_rate']:.1%}[/blue]")
 
+        # Show cache statistics
+        if self.cache_enabled:
+            cache_stats = self.cache.get_stats()
+            emb_stats = cache_stats['embeddings']
+            console.print(f"\n[bold cyan]Cache Performance:[/bold cyan]")
+            console.print(f"[green]✓ Cache hits: {emb_stats['hits']}[/green]")
+            console.print(f"[yellow]○ Cache misses: {emb_stats['misses']}[/yellow]")
+            console.print(f"[blue]Hit rate: {emb_stats['hit_rate']:.1%}[/blue]")
+            console.print(f"[cyan]Cached embeddings: {emb_stats['size']}[/cyan]")
+
+            # Calculate API call savings
+            if emb_stats['hits'] > 0:
+                api_calls_saved = emb_stats['hits']
+                cost_saved = api_calls_saved * 0.00002  # Approximate cost per embedding
+                console.print(f"[green]💰 Estimated API calls saved: {api_calls_saved}[/green]")
+                console.print(f"[green]💰 Estimated cost saved: ${cost_saved:.4f}[/green]")
+
+            # Final save of cache
+            console.print("[blue]ℹ Saving cache...[/blue]")
+            await self.cache.save_async()
+
         return stats
 
 
@@ -243,7 +305,12 @@ async def main():
     await pipeline.initialize()
 
     # Ingest documents
-    await pipeline.ingest_directory(args.directory, args.pattern)
+    try:
+        await pipeline.ingest_directory(args.directory, args.pattern)
+    finally:
+        # Ensure explicit save on exit if cache is enabled (though ingest_directory does it too)
+        if pipeline.cache_enabled:
+             await pipeline.cache.save_async()
 
 
 if __name__ == "__main__":
